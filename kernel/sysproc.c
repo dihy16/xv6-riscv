@@ -7,6 +7,8 @@
 #include "proc.h"
 #include "vm.h"
 
+uint64 sys_getprocs(void);
+
 uint64
 sys_exit(void)
 {
@@ -107,3 +109,14 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+uint64 
+sys_getprocs(void)
+{
+  uint64 uaddr;
+  int max;
+  argaddr(0, &uaddr);
+  argint(1, &max);
+  return getprocs(uaddr, max);
+}
+

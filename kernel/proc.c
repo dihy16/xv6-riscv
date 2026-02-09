@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "getproc.h"
 
 struct cpu cpus[NCPU];
 
@@ -687,4 +688,41 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+int
+getprocs(uint64 uaddr, int max)
+{
+  struct proc *p;
+  struct procinfo pi;
+  int count = 0;
+
+  for(p = proc; p < &proc[NPROC]; p++){
+    if(count >= max)
+      break;
+
+    acquire(&p->lock);
+
+    if(p->state != UNUSED){
+      pi.pid = p->pid;
+      pi.state = (enum procstate_u)p->state;
+      pi.sz = p->sz;
+      safestrcpy(pi.name, p->name, sizeof(pi.name));
+
+      // copy procinfo to user space
+      if(copyout(myproc()->pagetable,
+                 uaddr + count * sizeof(struct procinfo),
+                 (char *)&pi,
+                 sizeof(struct procinfo)) < 0){
+        release(&p->lock);
+        return -1;
+      }
+
+      count++;
+    }
+
+    release(&p->lock);
+  }
+
+  return count;
 }
