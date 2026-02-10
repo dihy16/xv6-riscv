@@ -27,6 +27,7 @@ char* sys_sbrk(int,int);
 int pause(int);
 int uptime(void);
 int getprocs(struct procinfo*, int);
+int trace(int);
 
 // ulib.c
 int stat(const char*, struct stat*);
