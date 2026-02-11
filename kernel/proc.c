@@ -692,20 +692,6 @@ procdump(void)
   }
 }
 
-static enum procstate_u
-map_state(enum procstate s)
-{
-  switch (s) {
-  case UNUSED:   return U_UNUSED;
-  case USED:     return U_USED;
-  case SLEEPING: return U_SLEEPING;
-  case RUNNABLE: return U_RUNNABLE;
-  case RUNNING:  return U_RUNNING;
-  case ZOMBIE:   return U_ZOMBIE;
-  }
-  return U_UNUSED;
-}
-
 
 int
 getprocs(uint64 uaddr, int max)
@@ -722,7 +708,7 @@ getprocs(uint64 uaddr, int max)
 
     if(p->state != UNUSED){
       pi.pid = p->pid;
-      pi.state = map_state(p->state);
+      pi.state = p->state;
       pi.sz = p->sz;
       safestrcpy(pi.name, p->name, sizeof(pi.name));
 

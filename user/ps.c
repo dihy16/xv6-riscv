@@ -2,18 +2,17 @@
 #include "kernel/getproc.h"
 #include "user/user.h"
 
-char *states[] = {
-  [U_UNUSED]   = "unused",
-  [U_USED]     = "used",
-  [U_SLEEPING] = "sleep",
-  [U_RUNNABLE] = "runnable",
-  [U_RUNNING]  = "run",
-  [U_ZOMBIE]   = "zombie",
-};
-
 int
 main(void)
 {
+  char *states[] = {
+    [0]   = "unused",
+    [1]   = "used",
+    [2]   = "sleep",
+    [3]   = "runnable",
+    [4]   = "run",
+    [5]   = "zombie",
+  };
   struct procinfo p[64];
   int n;
 
