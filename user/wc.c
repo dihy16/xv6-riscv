@@ -4,12 +4,9 @@
 #include "user/user.h"
 
 char buf[512];
-int flag_l = 0;
-int flag_c = 0;
-int flag_w = 0;
 
 void
-wc(int fd, char *name)
+wc(int fd, char *name, int flag_l, int flag_w, int flag_c)
 {
   int i, n;
   int l, w, c, inword;
@@ -42,13 +39,16 @@ wc(int fd, char *name)
 int
 main(int argc, char *argv[])
 {
+  int flag_l = 0;
+  int flag_w = 0;
+  int flag_c = 0;
   int fd, i;
   int files_start = argc;
   for(i = 1; i < argc; i++){
     if (argv[i][0] == '-') {
       if (strchr(argv[i], 'l')) flag_l = 1;
-      if (strchr(argv[i], 'c')) flag_c = 1;
       if (strchr(argv[i], 'w')) flag_w = 1;
+      if (strchr(argv[i], 'c')) flag_c = 1;
     }
     else {
       files_start = i;
@@ -61,8 +61,8 @@ main(int argc, char *argv[])
     flag_l = flag_c = flag_w = 1;
   }
   
-  if(files_start >= argc){
-    wc(0, "");
+  if(files_start == argc){
+    wc(0, "", flag_l, flag_w, flag_c);
     exit(0);
   }
 
@@ -71,7 +71,7 @@ main(int argc, char *argv[])
       printf("wc: cannot open %s\n", argv[i]);
       exit(1);
     }
-    wc(fd, argv[i]);
+    wc(fd, argv[i], flag_l, flag_w, flag_c);
     close(fd);
   }
   exit(0);
