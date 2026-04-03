@@ -128,3 +128,19 @@ sys_trace(void)
   myproc()->tracemask = mask;
   return 0;
 }
+
+uint64
+sys_mmap(void)
+{
+  return mmap();
+}
+
+uint64
+sys_munmap(void)
+{
+  uint64 va;
+  
+  argaddr(0, &va);
+    
+  return munmap(va);
+}
