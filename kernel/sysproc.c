@@ -128,11 +128,13 @@ sys_trace(void)
   myproc()->tracemask = mask;
   return 0;
 }
-
+\
 uint64
 sys_mmap(void)
 {
-  return mmap();
+  int key;
+  argint(0, &key);
+  return mmap(key);
 }
 
 uint64

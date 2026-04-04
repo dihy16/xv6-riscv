@@ -7,6 +7,22 @@
 #include "defs.h"
 #include "getproc.h"
 
+// Forward declaration of shared-memory structures defined in vm.c.
+// We declare the struct tag here so we can reference the global
+// `shmem_table` and its `.lock`. The macro MAX_SHMEM_REGIONS is
+// defined in `proc.h` and therefore available here.
+struct shmem_region {
+  uint64 pa;          // physical address of the page
+  int    refcount;    // how many process-mappings reference this
+  int    key;         // caller-chosen identifier
+  int    used;        // 1 if this slot is in use
+};
+
+extern struct {
+  struct shmem_region regions[MAX_SHMEM_REGIONS];
+  struct spinlock     lock;
+} shmem_table;
+
 struct cpu cpus[NCPU];
 
 struct proc proc[NPROC];
@@ -276,7 +292,43 @@ kfork(void)
     return -1;
   }
   np->sz = p->sz;
+  // Copy shared memory mappings
+  for(int i = 0; i < MAX_SHMEM_REGIONS; i++){
+    if(p->shmems[i].used){
 
+      // 1. Copy metadata
+      np->shmems[i] = p->shmems[i];
+
+      uint64 va = p->shmems[i].va;
+      int key = p->shmems[i].key;
+
+      // 2. Get physical address from parent
+      pte_t *pte = walk(p->pagetable, va, 0);
+      if(pte == 0 || (*pte & PTE_V) == 0)
+        continue;
+
+      uint64 pa = PTE2PA(*pte);
+      uint flags = PTE_FLAGS(*pte);
+
+      // 3. Map SAME physical page into child
+      if(mappages(np->pagetable, va, PGSIZE, pa, flags) != 0){
+        freeproc(np);
+        release(&np->lock);
+        return -1;
+      }
+
+      // 4. Increment refcount for this region
+      acquire(&shmem_table.lock);
+      for(int j = 0; j < MAX_SHMEM_REGIONS; j++){
+        if(shmem_table.regions[j].used &&
+          shmem_table.regions[j].key == key){
+          shmem_table.regions[j].refcount++;
+          break;
+        }
+      }
+      release(&shmem_table.lock);
+    }
+  }
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
 
@@ -347,7 +399,35 @@ kexit(int status)
   iput(p->cwd);
   end_op();
   p->cwd = 0;
+  // Free shared memory mappings
+  for(int i = 0; i < MAX_SHMEM_REGIONS; i++){
+    if(p->shmems[i].used){
 
+      int key = p->shmems[i].key;
+
+      acquire(&shmem_table.lock);
+
+      for(int j = 0; j < MAX_SHMEM_REGIONS; j++){
+        if(shmem_table.regions[j].used &&
+          shmem_table.regions[j].key == key){
+
+          shmem_table.regions[j].refcount--;
+
+          if(shmem_table.regions[j].refcount == 0){
+            kfree((void*)shmem_table.regions[j].pa);
+            shmem_table.regions[j].used = 0;
+          }
+
+          break;
+        }
+      }
+
+      release(&shmem_table.lock);
+
+      // mark slot unused
+      p->shmems[i].used = 0;
+    }
+  }
   acquire(&wait_lock);
 
   // Give any children to init.

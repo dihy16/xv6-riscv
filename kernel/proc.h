@@ -81,6 +81,14 @@ struct trapframe {
 
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
+struct proc_shmem {
+  int used;
+  int key;
+  uint64 va;   // virtual address in this process
+};
+
+#define MAX_SHMEM_REGIONS  16           // max distinct shared regions
+
 // Per-process state
 struct proc {
   struct spinlock lock;
@@ -105,4 +113,5 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
   int tracemask;               // Syscall trace mask
+  struct proc_shmem shmems[MAX_SHMEM_REGIONS]; 
 };

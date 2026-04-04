@@ -17,16 +17,33 @@ extern char etext[];  // kernel.ld sets this to end of kernel code.
 
 extern char trampoline[]; // trampoline.S
 
-// Structure to track our single shared memory page
+#define MAX_SHMEM_REGIONS  16           // max distinct shared regions
+#define SHMEM_START        0x4000000ULL // 64 MB — base of shmem range
+#define SHMEM_END          0x8000000ULL // 128 MB — top of shmem range
+                                        // gives 16 x 4 KB slots with room to spare
+
+struct shmem_region {
+  uint64 pa;          // physical address of the page
+  int    refcount;    // how many process-mappings reference this
+  int    key;         // caller-chosen identifier (like a POSIX shm key)
+  int    used;   // 1 if this slot is in use
+};
+
 struct {
-  uint64 pa;              // Physical address of the shared page
-  int refcount;           // Reference count
-  struct spinlock lock;   // Lock to protect access
-  int allocated;          // Whether the page is allocated
-} shmem_page;
+  struct shmem_region regions[MAX_SHMEM_REGIONS];
+  struct spinlock     lock;
+} shmem_table;
+
+// // Structure to track our single shared memory page
+// struct {
+//   uint64 pa;              // Physical address of the shared page
+//   int refcount;           // Reference count
+//   struct spinlock lock;   // Lock to protect access
+//   int allocated;          // Whether the page is allocated
+// } shmem_page;
 
 // Define a specific region for shared memory
-#define SHMEM_REGION 0x4000000  // 64MB mark
+// #define SHMEM_REGION 0x4000000  // 64MB mark
 
 // Make a direct-map page table for the kernel.
 pagetable_t
@@ -218,19 +235,19 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 
     if(do_free){
       // Special handling for shared memory
-      if(a == SHMEM_REGION){
-        acquire(&shmem_page.lock);
-        shmem_page.refcount--;
-        // Only free the page when no one else uses it
-        if(shmem_page.refcount == 0){
-          kfree((void*)pa);
-          shmem_page.allocated = 0;
-        }
-        release(&shmem_page.lock);
-      } else {
+      // if(a == SHMEM_REGION){
+      //   acquire(&shmem_page.lock);
+      //   shmem_page.refcount--;
+      //   // Only free the page when no one else uses it
+      //   if(shmem_page.refcount == 0){
+      //     kfree((void*)pa);
+      //     shmem_page.allocated = 0;
+      //   }
+      //   release(&shmem_page.lock);
+      // } else {
         // Normal pages
         kfree((void*)pa);
-      }
+      // }
     }
 
     *pte = 0;
@@ -342,17 +359,17 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
       goto err;
     }
   }
-    // Handle shared memory region — lives above sz so the loop never reaches it
-  pte_t *shmem_pte = walk(old, SHMEM_REGION, 0);
-  if(shmem_pte && (*shmem_pte & PTE_V)){
-    pa    = PTE2PA(*shmem_pte);
-    flags = PTE_FLAGS(*shmem_pte);
-    if(mappages(new, SHMEM_REGION, PGSIZE, pa, flags) != 0)
-      goto err;
-    acquire(&shmem_page.lock);
-    shmem_page.refcount++;
-    release(&shmem_page.lock);
-  }
+  //   // Handle shared memory region — lives above sz so the loop never reaches it
+  // pte_t *shmem_pte = walk(old, SHMEM_REGION, 0);
+  // if(shmem_pte && (*shmem_pte & PTE_V)){
+  //   pa    = PTE2PA(*shmem_pte);
+  //   flags = PTE_FLAGS(*shmem_pte);
+  //   if(mappages(new, SHMEM_REGION, PGSIZE, pa, flags) != 0)
+  //     goto err;
+  //   acquire(&shmem_page.lock);
+  //   shmem_page.refcount++;
+  //   release(&shmem_page.lock);
+  // }
   return 0;
 
  err:
@@ -525,82 +542,151 @@ ismapped(pagetable_t pagetable, uint64 va)
 void
 init_shmem(void)
 {
-  initlock(&shmem_page.lock, "shmem");
-  shmem_page.pa        = 0;
-  shmem_page.refcount  = 0;
-  shmem_page.allocated = 0;
+  initlock(&shmem_table.lock, "shmem");
+  for (int i = 0; i < MAX_SHMEM_REGIONS; i++) {
+    shmem_table.regions[i].pa        = 0;
+    shmem_table.regions[i].refcount  = 0;
+    shmem_table.regions[i].key       = -1;
+    shmem_table.regions[i].used = 0;
+  }
 }
 
 uint64
-mmap(void)
+mmap(int key)
 {
-  acquire(&shmem_page.lock);
- 
-  if (!shmem_page.allocated) {
-    // First caller — allocate a fresh physical page
-    char *mem = kalloc();
-    if (mem == 0) {
-      release(&shmem_page.lock);
+  struct proc *p = myproc();
+
+  // 0. Find free slot in this process FIRST
+  int idx = -1;
+  for (int i = 0; i < MAX_SHMEM_REGIONS; i++) {
+    if (!p->shmems[i].used) {
+      idx = i;
+      break;
+    }
+  }
+
+  if (idx == -1)
+    return 0;
+
+  uint64 va = SHMEM_START + idx * PGSIZE;
+
+  acquire(&shmem_table.lock);
+
+  struct shmem_region *r = 0;
+  struct shmem_region *free_slot = 0;
+
+  // 1. Find existing region or free slot
+  for (int i = 0; i < MAX_SHMEM_REGIONS; i++) {
+    if (shmem_table.regions[i].used &&
+        shmem_table.regions[i].key == key) {
+      r = &shmem_table.regions[i];
+      break;
+    }
+    if (!shmem_table.regions[i].used && free_slot == 0) {
+      free_slot = &shmem_table.regions[i];
+    }
+  }
+
+  // 2. Allocate if not found
+  if (r == 0) {
+    if (free_slot == 0) {
+      release(&shmem_table.lock);
       return 0;
     }
-    memset(mem, 0, PGSIZE);
-    shmem_page.pa        = (uint64)mem;
-    shmem_page.allocated = 1;
-    shmem_page.refcount  = 0;   // incremented below
-  }
- 
-  shmem_page.refcount++;
-  uint64 pa = shmem_page.pa;
-  release(&shmem_page.lock);
- 
-  // Map the physical page into this process's page table
-  struct proc *p = myproc();
-  if (mappages(p->pagetable, SHMEM_REGION, PGSIZE, pa,
-               PTE_R | PTE_W | PTE_U) < 0) {
-    // Mapping failed — roll back the refcount
-    acquire(&shmem_page.lock);
-    shmem_page.refcount--;
-    if (shmem_page.refcount == 0) {
-      kfree((void *)shmem_page.pa);
-      shmem_page.pa        = 0;
-      shmem_page.allocated = 0;
+
+    char *mem = kalloc();
+    if (mem == 0) {
+      release(&shmem_table.lock);
+      return 0;
     }
-    release(&shmem_page.lock);
+
+    memset(mem, 0, PGSIZE);
+
+    free_slot->used = 1;
+    free_slot->key = key;
+    free_slot->pa = (uint64)mem;
+    free_slot->refcount = 0;
+
+    r = free_slot;
+  }
+
+  // 3. Increase refcount ONCE
+  r->refcount++;
+  uint64 pa = r->pa;
+
+  release(&shmem_table.lock);
+
+  // 4. Map into this process
+  if (mappages(p->pagetable, va, PGSIZE,
+               pa, PTE_R | PTE_W | PTE_U) != 0) {
+
+    // rollback
+    acquire(&shmem_table.lock);
+    r->refcount--;
+    if (r->refcount == 0) {
+      kfree((void*)r->pa);
+      r->used = 0;
+    }
+    release(&shmem_table.lock);
+
     return 0;
   }
- 
-  return SHMEM_REGION;
+
+  // 5. Record mapping in process
+  p->shmems[idx].used = 1;
+  p->shmems[idx].key  = key;
+  p->shmems[idx].va   = va;
+
+  return va;
 }
- 
+
 int
 munmap(uint64 va)
 {
-  // Only the one fixed address is valid
-  if (va != SHMEM_REGION)
-    return -1;
- 
   struct proc *p = myproc();
- 
-  // Find the page-table entry
-  pte_t *pte = walk(p->pagetable, va, 0);
-  if (pte == 0 || (*pte & PTE_V) == 0)
-    return -1;
- 
-  // Clear the PTE — removes the mapping from this process
-  *pte = 0;
- 
-  // Flush the TLB entry for this address
-  sfence_vma();
- 
-  // Update the global reference count
-  acquire(&shmem_page.lock);
-  shmem_page.refcount--;
-  if (shmem_page.refcount == 0) {
-    kfree((void *)shmem_page.pa);
-    shmem_page.pa        = 0;
-    shmem_page.allocated = 0;
+
+  // 1. Find this VA in process table
+  int idx = -1;
+  int key = -1;
+
+  for (int i = 0; i < MAX_SHMEM_REGIONS; i++) {
+    if (p->shmems[i].used && p->shmems[i].va == va) {
+      idx = i;
+      key = p->shmems[i].key;
+      break;
+    }
   }
-  release(&shmem_page.lock);
- 
+
+  if (idx == -1)
+    return -1;
+
+  // 2. Unmap from page table
+  uvmunmap(p->pagetable, va, 1, 0);
+
+  // 3. Clear process record
+  p->shmems[idx].used = 0;
+
+  // 4. Update global table
+  acquire(&shmem_table.lock);
+
+  for (int i = 0; i < MAX_SHMEM_REGIONS; i++) {
+    if (shmem_table.regions[i].used &&
+        shmem_table.regions[i].key == key) {
+
+      struct shmem_region *r = &shmem_table.regions[i];
+
+      r->refcount--;
+
+      if (r->refcount == 0) {
+        kfree((void*)r->pa);
+        r->used = 0;
+      }
+
+      break;
+    }
+  }
+
+  release(&shmem_table.lock);
+
   return 0;
 }

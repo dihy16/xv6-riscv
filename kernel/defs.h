@@ -139,7 +139,7 @@ void            syscall();
 void            init_shmem(void);
 uint64          sys_mmap(void);
 uint64          sys_munmap(void);
-uint64          mmap(void);
+uint64          mmap(int);
 int             munmap(uint64 va);
 
 // trap.c
