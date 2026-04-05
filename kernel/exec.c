@@ -129,6 +129,7 @@ kexec(char *path, char **argv)
     
   // Commit to the user image.
   oldpagetable = p->pagetable;
+  proc_freeshmem(p, oldpagetable);
   p->pagetable = pagetable;
   p->sz = sz;
   p->trapframe->epc = elf.entry;  // initial program counter = ulib.c:start()

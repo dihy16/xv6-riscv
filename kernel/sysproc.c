@@ -59,7 +59,7 @@ sys_sbrk(void)
     // memory, vmfault() will allocate it.
     if(addr + n < addr)
       return -1;
-    if(addr + n > TRAPFRAME)
+    if(addr + n > shmem_mmap_limit(myproc()))
       return -1;
     myproc()->sz += n;
   }
@@ -128,13 +128,18 @@ sys_trace(void)
   myproc()->tracemask = mask;
   return 0;
 }
-\
+
 uint64
 sys_mmap(void)
 {
-  int key;
-  argint(0, &key);
-  return mmap(key);
+  uint64 len;
+  int prot, flags, id;
+
+  argaddr(0, &len);
+  argint(1, &prot);
+  argint(2, &flags);
+  argint(3, &id);
+  return mmap(len, prot, flags, id);
 }
 
 uint64

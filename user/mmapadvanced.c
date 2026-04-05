@@ -1,4 +1,5 @@
 #include "kernel/types.h"
+#include "kernel/riscv.h"
 #include "kernel/stat.h"
 #include "user/user.h"
 
@@ -10,8 +11,8 @@ main(int argc, char *argv[])
     printf("=== Multi-region mmap test ===\n");
 
       // Map TWO different regions
-        uint64 addr1 = mmap(1);
-          uint64 addr2 = mmap(2);
+        uint64 addr1 = mmap(PGSIZE, PROT_READ | PROT_WRITE, MAP_SHARED, 1);
+          uint64 addr2 = mmap(2 * PGSIZE, PROT_READ | PROT_WRITE, MAP_SHARED, 2);
 
             if(addr1 == 0 || addr2 == 0){
                 printf("mmap failed\n");
@@ -22,7 +23,7 @@ main(int argc, char *argv[])
                           printf("Mapped region2 at %p\n", (void*)addr2);
 
                             int *r1 = (int*)addr1;
-                              int *r2 = (int*)addr2;
+                              int *r2 = (int*)(addr2 + PGSIZE);
 
                                 // Write different values
                                   *r1 = 10;

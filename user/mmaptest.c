@@ -1,4 +1,5 @@
 #include "kernel/types.h"
+#include "kernel/riscv.h"
 #include "kernel/stat.h"
 #include "user/user.h"
 
@@ -11,7 +12,7 @@ main(int argc, char *argv[])
   printf("Testing mmap shared memory...\n");
 
   // Map shared memory
-  shared_addr = mmap(1);
+  shared_addr = mmap(PGSIZE, PROT_READ | PROT_WRITE, MAP_SHARED, 1);
   if(shared_addr == 0){
     printf("mmap failed\n");
     exit(1);

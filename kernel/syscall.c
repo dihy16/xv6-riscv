@@ -11,10 +11,7 @@
 int
 fetchaddr(uint64 addr, uint64 *ip)
 {
-  struct proc *p = myproc();
-  if(addr >= p->sz || addr+sizeof(uint64) > p->sz) // both tests needed, in case of overflow
-    return -1;
-  if(copyin(p->pagetable, (char *)ip, addr, sizeof(*ip)) != 0)
+  if(copyin(myproc()->pagetable, (char *)ip, addr, sizeof(*ip)) != 0)
     return -1;
   return 0;
 }
@@ -160,6 +157,8 @@ static char *syscall_names[] = {
   [SYS_close]   "close",
   [SYS_getprocs] "getprocs",
   [SYS_trace]   "trace",
+  [SYS_mmap]    "mmap",
+  [SYS_munmap]  "munmap",
 };
 
 static int syscall_nargs[] = {
@@ -186,6 +185,8 @@ static int syscall_nargs[] = {
   [SYS_close]     1,
   [SYS_getprocs]  1,
   [SYS_trace]     1,
+  [SYS_mmap]      4,
+  [SYS_munmap]    1,
 };
 
 void

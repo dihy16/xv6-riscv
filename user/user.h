@@ -4,6 +4,13 @@
 
 struct stat;
 
+#define PROT_READ   0x1
+#define PROT_WRITE  0x2
+#define PROT_EXEC   0x4
+
+#define MAP_SHARED  0x1
+#define MAP_ANON    0x2
+
 // system calls
 int fork(void);
 int exit(int) __attribute__((noreturn));
@@ -28,7 +35,7 @@ int pause(int);
 int uptime(void);
 int getprocs(struct procinfo*, int);
 int trace(int);
-uint64 mmap(int);
+uint64 mmap(uint64, int, int, int);
 int munmap(uint64);
 
 // ulib.c

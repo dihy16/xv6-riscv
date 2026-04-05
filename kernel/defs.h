@@ -85,6 +85,9 @@ int             growproc(int);
 void            proc_mapstacks(pagetable_t);
 pagetable_t     proc_pagetable(struct proc *);
 void            proc_freepagetable(pagetable_t, uint64);
+void            proc_freeshmem(struct proc *, pagetable_t);
+int             shmem_copy_mappings(struct proc *, struct proc *);
+uint64          shmem_mmap_limit(struct proc *);
 int             kkill(int);
 int             killed(struct proc*);
 void            setkilled(struct proc*);
@@ -139,7 +142,7 @@ void            syscall();
 void            init_shmem(void);
 uint64          sys_mmap(void);
 uint64          sys_munmap(void);
-uint64          mmap(int);
+uint64          mmap(uint64, int, int, int);
 int             munmap(uint64 va);
 
 // trap.c
