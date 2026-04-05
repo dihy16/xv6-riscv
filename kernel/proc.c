@@ -175,6 +175,17 @@ freeproc(struct proc *p)
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
+  if(p->pagetable){
+    for(int i = 0; i < MAX_SHMEM_REGIONS; i++){
+      if(p->shmems[i].used){
+        // Shared mappings live above p->sz, so tear them down explicitly.
+        uvmunmap(p->pagetable, p->shmems[i].va, 1, 0);
+        p->shmems[i].used = 0;
+        p->shmems[i].key = 0;
+        p->shmems[i].va = 0;
+      }
+    }
+  }
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
   p->pagetable = 0;
@@ -404,6 +415,9 @@ kexit(int status)
     if(p->shmems[i].used){
 
       int key = p->shmems[i].key;
+      uint64 va = p->shmems[i].va;
+
+      uvmunmap(p->pagetable, va, 1, 0);
 
       acquire(&shmem_table.lock);
 
@@ -426,6 +440,8 @@ kexit(int status)
 
       // mark slot unused
       p->shmems[i].used = 0;
+      p->shmems[i].key = 0;
+      p->shmems[i].va = 0;
     }
   }
   acquire(&wait_lock);

@@ -660,11 +660,13 @@ munmap(uint64 va)
   if (idx == -1)
     return -1;
 
-  // 2. Unmap from page table
+  // 2. Unmap from page table (DO NOT free)
   uvmunmap(p->pagetable, va, 1, 0);
 
   // 3. Clear process record
   p->shmems[idx].used = 0;
+  p->shmems[idx].key  = 0;
+  p->shmems[idx].va   = 0;
 
   // 4. Update global table
   acquire(&shmem_table.lock);
@@ -675,7 +677,8 @@ munmap(uint64 va)
 
       struct shmem_region *r = &shmem_table.regions[i];
 
-      r->refcount--;
+      if (r->refcount > 0)
+        r->refcount--;
 
       if (r->refcount == 0) {
         kfree((void*)r->pa);
